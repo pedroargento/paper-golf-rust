@@ -17,6 +17,7 @@
 - Shooting from sand incurs a -1 penalty.
 - Shooting from fairway incurs a +1 bonus.
 - Srength determine how many grid spaces the ball will move on the chosen direction (diagonal is the same as straight).
+- If the ball lands on a slope, it rolls.
 ## TODO
 - Refactor some functions (always, uh?)
 - Make current ball location not overwrite terrain (it was done this way to make rendering easier).
