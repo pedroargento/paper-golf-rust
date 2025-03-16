@@ -20,6 +20,7 @@
 - If the ball lands on a slope, it rolls.
 ## TODO
 - Refactor some functions (always, uh?)
+- Implement bound checks
 - Make current ball location not overwrite terrain (it was done this way to make rendering easier).
 - Include iron club: Drive can only be used from fairway and its the only one that can send ball over trees.
 - Implement DDA to detect tree instersection.
