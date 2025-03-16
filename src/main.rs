@@ -6,27 +6,32 @@ use std::io;
 use std::io::{stdin, stdout, Read, Write};
 use termion::raw::IntoRawMode;
 use termion::{async_stdin, clear, color, cursor, style};
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 struct Point {
     x: i32,
     y: i32,
 }
 enum Action {
-Drive(u8),
-Put
+    Drive(Point, i32),
+    Put(Point),
 }
 
-#[derive(Debug, Clone, Copy)]
-enum Direction {
-    North,
-    South,
-    East,
-    West,
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Direction;
+impl Direction {
+    pub const N: Point = Point { x: -1, y: 0 };
+    pub const S: Point = Point { x: 1, y: 0 };
+    pub const W: Point = Point { x: 0, y: -1 };
+    pub const E: Point = Point { x: 0, y: 1 };
+    pub const NW: Point = Point { x: -1, y: -1 };
+    pub const NE: Point = Point { x: -1, y: 1 };
+    pub const SW: Point = Point { x: 1, y: -1 };
+    pub const SE: Point = Point { x: 1, y: 1 };
 }
 
 #[derive(Debug, Clone, Copy)]
 enum Terrain {
-    Slope(Direction),
+    Slope(Point),
     Tree,
     Sand,
     Hole,
@@ -61,10 +66,10 @@ impl World {
             for c in line.trim().split(" ") {
                 col_counter += 1;
                 let terrain = match c {
-                    ">" => Terrain::Slope(Direction::East),
-                    "<" => Terrain::Slope(Direction::West),
-                    "^" => Terrain::Slope(Direction::North),
-                    "v" => Terrain::Slope(Direction::South),
+                    ">" => Terrain::Slope(Direction::E),
+                    "<" => Terrain::Slope(Direction::W),
+                    "^" => Terrain::Slope(Direction::N),
+                    "v" => Terrain::Slope(Direction::S),
                     "o" => Terrain::Hole,
                     "t" => Terrain::Tree,
                     "s" => Terrain::Sand,
@@ -92,27 +97,10 @@ impl World {
 fn land(coord: &Point, world: &World) -> Point {
     let terrain = world.get_terrain(&coord);
     match terrain {
-        Terrain::Slope(direction) => {
-            let new_coord = match direction {
-                Direction::East => Point {
-                    x: coord.x,
-                    y: coord.y + 1,
-                },
-                Direction::West => Point {
-                    x: coord.x,
-                    y: coord.y.saturating_sub(1),
-                },
-                Direction::North => Point {
-                    x: coord.x.saturating_sub(1),
-                    y: coord.y,
-                },
-                Direction::South => Point {
-                    x: coord.x + 1,
-                    y: coord.y,
-                },
-            };
-            land(&new_coord, world) 
-        }
+        Terrain::Slope(direction) => Point {
+            x: coord.x + direction.x,
+            y: coord.y + direction.y,
+        },
         _ => Point {
             x: coord.x,
             y: coord.y,
@@ -120,10 +108,15 @@ fn land(coord: &Point, world: &World) -> Point {
     }
 }
 
-fn shot(from: &Point, dir: &Point, str: i32) -> Point {
+fn shot(from: &Point, action: Action) -> Point {
+    let (dir, strength) = match action {
+        Action::Put(d) => (d, 1),
+        Action::Drive(d, strength) => (d, strength),
+    };
+
     Point {
-        x: from.x + str * dir.x,
-        y: from.y + str * dir.y,
+        x: from.x + (strength as i32) * dir.x,
+        y: from.y + (strength as i32) * dir.y,
     }
 }
 
@@ -154,35 +147,35 @@ fn draw_map(world: &World) {
             }
             Terrain::Hole => {
                 write!(stdout, "{}", color::Fg(color::Red));
-                write!(stdout, "{}{}", cursor::Goto(x + 1, y + 1), "O").unwrap();
+                write!(stdout, "{}{}", cursor::Goto(x + 1, y + 1), "F").unwrap();
             }
             Terrain::Sand => {
                 write!(stdout, "{}", color::Fg(color::LightYellow));
-                write!(stdout, "{}{}", cursor::Goto(x + 1, y + 1), "@").unwrap();
+                write!(stdout, "{}{}", cursor::Goto(x + 1, y + 1), "*").unwrap();
             }
             Terrain::Water => {
                 write!(stdout, "{}", color::Fg(color::LightBlue));
                 write!(stdout, "{}{}", cursor::Goto(x + 1, y + 1), "w").unwrap();
             }
-            Terrain::Slope(Direction::East) => {
+            Terrain::Slope(Direction::E) => {
                 write!(stdout, "{}", color::Fg(color::LightGreen));
                 write!(stdout, "{}{}", cursor::Goto(x + 1, y + 1), ">").unwrap();
             }
-            Terrain::Slope(Direction::West) => {
+            Terrain::Slope(Direction::W) => {
                 write!(stdout, "{}", color::Fg(color::LightGreen));
                 write!(stdout, "{}{}", cursor::Goto(x + 1, y + 1), "<").unwrap();
             }
-            Terrain::Slope(Direction::North) => {
+            Terrain::Slope(Direction::N) => {
                 write!(stdout, "{}", color::Fg(color::LightGreen));
                 write!(stdout, "{}{}", cursor::Goto(x + 1, y + 1), "^").unwrap();
             }
-            Terrain::Slope(Direction::South) => {
+            Terrain::Slope(Direction::S) => {
                 write!(stdout, "{}", color::Fg(color::LightGreen));
                 write!(stdout, "{}{}", cursor::Goto(x + 1, y + 1), "v").unwrap();
             }
             _ => {
                 write!(stdout, "{}", color::Fg(color::Green));
-                write!(stdout, "{}{}", cursor::Goto(x + 1, y + 1), "@").unwrap();
+                write!(stdout, "{}{}", cursor::Goto(x + 1, y + 1), "#").unwrap();
             }
         }
     }
@@ -201,30 +194,41 @@ fn main() {
                 _ => 0,
             };
 
-        println!("Strength: {}", strength);
+        println!("\n Strength: {} (1 if put)", strength);
         println!("Please input a direction:");
         let mut direction = String::new();
-
         io::stdin()
             .read_line(&mut direction)
             .expect("Failed to read line");
 
         let dir: Point = match direction.trim() {
             // Trim whitespace
-            "N" => Point { x: -1, y: 0 },
-            "S" => Point { x: 1, y: 0 },
-            "E" => Point { x: 0, y: 1 },
-            "W" => Point { x: 0, y: -1 },
-            "NW" => Point { x: -1, y: -1 },
-            "NE" => Point { x: -1, y: 1 },
-            "SE" => Point { x: 1, y: 1 },
-            "SW" => Point { x: 1, y: -1 },
+            "N" => Direction::N,
+            "S" => Direction::S,
+            "E" => Direction::E,
+            "W" => Direction::W,
+            "NW" => Direction::NW,
+            "NE" => Direction::NE,
+            "SE" => Direction::SE,
+            "SW" => Direction::SW,
             _ => {
                 Point { x: 0, y: 0 };
-                break;
+                continue;
             }
         };
-        let fall: Point = shot(&ball, &dir, strength);
+        println!("(D)rive or (P)ut?");
+        let mut club = String::new();
+        io::stdin()
+            .read_line(&mut club)
+            .expect("Failed to read line");
+        let action: Action = match club.trim() {
+            "P" => Action::Put(dir),
+            "D" => Action::Drive(dir, strength),
+            _ => continue,
+        };
+
+        Action::Drive(dir, strength);
+        let fall: Point = shot(&ball, action);
         let land_spot = land(&fall, &world);
         let land_terrain = world.get_terrain(&land_spot);
         match land_terrain {
